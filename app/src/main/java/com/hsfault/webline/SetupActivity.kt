@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
+import com.hsfault.webline.data.EmblemStore
 import com.hsfault.webline.data.UserPrefs
 import com.hsfault.webline.data.WeatherRepository
 import com.hsfault.webline.panel.PanelService
@@ -121,6 +122,8 @@ private fun SetupScreen(resumeTick: Int) {
     var nameStatus by remember { mutableStateOf(user.name.uppercase()) }
     var city by remember { mutableStateOf(weather.city) }
     var cityStatus by remember { mutableStateOf(weather.city.uppercase()) }
+    var lockOn by remember { mutableStateOf(user.lockCoverEnabled) }
+    var emblemStatus by remember { mutableStateOf(if (EmblemStore.exists(context)) "SET" else "NONE") }
 
     val roleRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (!SystemActions.isDefaultHome(context)) SystemActions.openHomeSettings(context)
@@ -132,6 +135,19 @@ private fun SetupScreen(resumeTick: Int) {
                 wallpaperStatus = try {
                     withContext(Dispatchers.IO) { WallpaperSetter.apply(context, uri) }
                     "APPLIED"
+                } catch (e: Exception) {
+                    "FAILED"
+                }
+            }
+        }
+    }
+    val emblemPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            emblemStatus = "SAVING"
+            scope.launch {
+                emblemStatus = try {
+                    withContext(Dispatchers.IO) { EmblemStore.save(context, uri) }
+                    "SET"
                 } catch (e: Exception) {
                     "FAILED"
                 }
@@ -152,7 +168,7 @@ private fun SetupScreen(resumeTick: Int) {
             style = HudType.title.copy(fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 30.sp, letterSpacing = 6.sp),
         )
         Spacer(Modifier.height(4.dp))
-        BasicText("SETUP // V3", style = HudType.header)
+        BasicText("SETUP // V4", style = HudType.header)
         Spacer(Modifier.height(24.dp))
 
         SetupCard(
@@ -239,7 +255,7 @@ private fun SetupScreen(resumeTick: Int) {
             status = if (panelOn) "ON" else "OFF",
             ok = panelOn,
             body = "In Accessibility, open \"WEBLINE Panel\" (under Downloaded apps / Installed services) and turn it on. " +
-                "It only watches for the pull-down swipe and the Back button. It never reads your screen.",
+                "It powers the pull-down panel and the lock cover, and never reads your screen.",
         ) {
             HudButton(if (panelOn) "MANAGE PANEL" else "OPEN ACCESSIBILITY") {
                 openScreen(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -260,10 +276,42 @@ private fun SetupScreen(resumeTick: Int) {
 
         SetupCard(
             step = "08",
+            title = "LOCK COVER",
+            status = if (lockOn) "ON" else "OFF",
+            ok = lockOn,
+            body = "Shows your emblem over the lock screen when you wake the phone. Unlock with your fingerprint (or swipe up) " +
+                "and it splits apart. Double-tap it to turn the screen off. Needs step 06 on. " +
+                "A PNG emblem with a transparent background looks best.",
+        ) {
+            HudButton(
+                text = when (emblemStatus) {
+                    "SAVING" -> "SAVING…"
+                    "SET" -> "CHANGE EMBLEM"
+                    "FAILED" -> "TRY ANOTHER IMAGE"
+                    else -> "CHOOSE EMBLEM"
+                },
+                enabled = emblemStatus != "SAVING",
+            ) { emblemPicker.launch("image/*") }
+            HudButton(if (lockOn) "TURN OFF" else "TURN ON") {
+                user.lockCoverEnabled = !lockOn
+                lockOn = !lockOn
+            }
+            HudButton("PREVIEW") {
+                val service = PanelService.instance
+                if (service == null) {
+                    Toast.makeText(context, "Turn on step 06 (Notification Panel) first", Toast.LENGTH_LONG).show()
+                } else {
+                    service.showCover(preview = true)
+                }
+            }
+        }
+
+        SetupCard(
+            step = "09",
             title = "KEEP ALIVE ON XOS",
             status = if (batteryFree) "UNRESTRICTED" else "RESTRICTED",
             ok = batteryFree,
-            body = "XOS closes background apps aggressively. Turn off battery optimization, then in Phone Master allow WEBLINE to auto-start, or the panel may stop working.",
+            body = "XOS closes background apps aggressively. Turn off battery optimization, then in Phone Master allow WEBLINE to auto-start, or the panel and lock cover may stop working.",
         ) {
             HudButton("BATTERY OPTIMIZATION", enabled = !batteryFree) {
                 SystemActions.requestIgnoreBattery(context)
