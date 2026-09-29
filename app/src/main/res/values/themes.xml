@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Webline.Home" parent="android:Theme.Material.Wallpaper.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.Webline.Setup" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/webline_void</item>
+        <item name="android:statusBarColor">@color/webline_void</item>
+        <item name="android:navigationBarColor">@color/webline_void</item>
+    </style>
+</resources>

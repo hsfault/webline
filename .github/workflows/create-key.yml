@@ -1,0 +1,34 @@
+name: Create signing key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Generate keystore
+        env:
+          PASS: ${{ secrets.WEBLINE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ ${#PASS} -lt 6 ]; then
+            echo "::error::Add a WEBLINE_KEYSTORE_PASSWORD secret (6+ characters) first."
+            exit 1
+          fi
+          keytool -genkeypair -v -keystore webline.jks -alias webline -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$PASS" -keypass "$PASS" \
+            -dname "CN=Zeeshan Ahmad, OU=WEBLINE, O=hsfault, L=Gujranwala, C=PK"
+          base64 -w 0 webline.jks > webline-keystore-base64.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webline-signing-key
+          path: |
+            webline.jks
+            webline-keystore-base64.txt
+          retention-days: 1
