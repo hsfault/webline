@@ -22,6 +22,7 @@ import com.hsfault.webline.data.LayoutStore
 import com.hsfault.webline.data.UserPrefs
 import com.hsfault.webline.data.WeatherRepository
 import com.hsfault.webline.media.MediaRepository
+import com.hsfault.webline.panel.PanelService
 import com.hsfault.webline.ui.home.HomeActions
 import com.hsfault.webline.ui.home.HomeScreen
 import com.hsfault.webline.util.SystemActions
@@ -64,7 +65,8 @@ class MainActivity : ComponentActivity() {
                 drawerOpen = false
             },
             appInfo = { app -> repo.openAppInfo(app) },
-            swipeDown = { SystemActions.expandNotifications(this) },
+            // Our panel if the WEBLINE Panel service is on, otherwise the system shade.
+            swipeDown = { PanelService.instance?.openPanel() ?: SystemActions.expandNotifications(this) },
             openClock = { SystemActions.openClock(this) },
             refreshWeather = { lifecycleScope.launch { weather.refresh(force = true) } },
             openMusic = {

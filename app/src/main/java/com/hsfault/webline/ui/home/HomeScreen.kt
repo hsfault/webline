@@ -3,11 +3,10 @@ package com.hsfault.webline.ui.home
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -19,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -104,7 +104,6 @@ fun HomeScreen(
     var pick by remember { mutableStateOf<PickTarget?>(null) }
     var openFolder by remember { mutableStateOf<Folder?>(null) }
 
-    // Home pressed while already home: close everything and return to page one.
     LaunchedEffect(homeSignal) {
         if (homeSignal > 0) {
             menu = null
@@ -114,7 +113,6 @@ fun HomeScreen(
         }
     }
 
-    // Swallow back on the home screen; overlays register their own handlers on top.
     BackHandler { menu = null }
 
     val overlayOpen = drawerOpen || pick != null || openFolder != null || menu != null
@@ -208,38 +206,41 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 1,
         ) { page ->
-            when (page) {
-                0 -> HomeComposition(
-                    geo = geo,
-                    slots = slots,
-                    weather = weather,
-                    nowPlaying = nowPlaying,
-                    hasMusicAccess = hasMusicAccess,
-                    onSlotTap = { i -> tapSlot(slots[i]) { menu = MenuTarget.Slot(i) } },
-                    onSlotLongPress = { i -> menu = MenuTarget.Slot(i) },
-                    onClock = actions.openClock,
-                    onWeather = actions.refreshWeather,
-                    onOpenMusic = actions.openMusic,
-                    onMusicPrev = actions.musicPrev,
-                    onMusicPlayPause = actions.musicPlayPause,
-                    onMusicNext = actions.musicNext,
-                )
-                1 -> InfoPage(
-                    geo = geo,
-                    userName = userName,
-                    recent = recent,
-                    visible = pagerState.currentPage == 1,
-                    onSearch = { onDrawerOpenChange(true) },
-                    onLaunch = actions.launch,
-                    onLongPress = { menu = MenuTarget.DrawerApp(it) },
-                    onStorage = actions.openStorage,
-                )
-                else -> ExtraPage(
-                    geo = geo,
-                    apps = extraPages.getOrElse(page - FIXED_PAGES) { emptyList() },
-                    onTap = actions.launch,
-                    onLongPress = { menu = MenuTarget.Extra(it) },
-                )
+            // Each page gets its own layer: swiping moves a cached image instead of redrawing.
+            Box(Modifier.fillMaxSize().graphicsLayer()) {
+                when (page) {
+                    0 -> HomeComposition(
+                        geo = geo,
+                        slots = slots,
+                        weather = weather,
+                        nowPlaying = nowPlaying,
+                        hasMusicAccess = hasMusicAccess,
+                        onSlotTap = { i -> tapSlot(slots[i]) { menu = MenuTarget.Slot(i) } },
+                        onSlotLongPress = { i -> menu = MenuTarget.Slot(i) },
+                        onClock = actions.openClock,
+                        onWeather = actions.refreshWeather,
+                        onOpenMusic = actions.openMusic,
+                        onMusicPrev = actions.musicPrev,
+                        onMusicPlayPause = actions.musicPlayPause,
+                        onMusicNext = actions.musicNext,
+                    )
+                    1 -> InfoPage(
+                        geo = geo,
+                        userName = userName,
+                        recent = recent,
+                        visible = pagerState.currentPage == 1,
+                        onSearch = { onDrawerOpenChange(true) },
+                        onLaunch = actions.launch,
+                        onLongPress = { menu = MenuTarget.DrawerApp(it) },
+                        onStorage = actions.openStorage,
+                    )
+                    else -> ExtraPage(
+                        geo = geo,
+                        apps = extraPages.getOrElse(page - FIXED_PAGES) { emptyList() },
+                        onTap = actions.launch,
+                        onLongPress = { menu = MenuTarget.Extra(it) },
+                    )
+                }
             }
         }
 
@@ -252,10 +253,11 @@ fun HomeScreen(
             onLongPress = { i -> menu = MenuTarget.DockSlot(i) },
         )
 
+        // Slide only: the drawer is opaque, so a full-screen fade would just cost frames.
         AnimatedVisibility(
             visible = drawerOpen || pick != null,
-            enter = slideInVertically(tween(320)) { it / 3 } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(260)) { it / 3 } + fadeOut(tween(200)),
+            enter = slideInVertically(tween(280)) { it },
+            exit = slideOutVertically(tween(220)) { it },
         ) {
             AppDrawer(
                 apps = apps,

@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">WEBLINE</string>
     <string name="setup_name">WEBLINE Setup</string>
+    <string name="panel_service_label">WEBLINE Panel</string>
+    <string name="panel_service_description">Shows the WEBLINE notification panel when you swipe down from the top of the screen. It only listens for that swipe and the Back button, and never reads or collects what is on your screen.</string>
 </resources>

@@ -1,8 +1,11 @@
 package com.hsfault.webline
 
 import android.app.role.RoleManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.hsfault.webline.data.UserPrefs
 import com.hsfault.webline.data.WeatherRepository
+import com.hsfault.webline.panel.PanelService
 import com.hsfault.webline.ui.components.HudButton
 import com.hsfault.webline.ui.theme.ChakraPetch
 import com.hsfault.webline.ui.theme.GlowSeg
@@ -82,6 +86,23 @@ class SetupActivity : ComponentActivity() {
     }
 }
 
+private fun isPanelEnabled(context: Context): Boolean {
+    val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        ?: return false
+    val me = ComponentName(context, PanelService::class.java)
+    return enabled.split(':').any {
+        it.equals(me.flattenToString(), ignoreCase = true) || it.equals(me.flattenToShortString(), ignoreCase = true)
+    }
+}
+
+private fun openScreen(context: Context, intent: Intent) {
+    try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Couldn't open that screen", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @Composable
 private fun SetupScreen(resumeTick: Int) {
     val context = LocalContext.current
@@ -93,6 +114,8 @@ private fun SetupScreen(resumeTick: Int) {
     val musicAccess = remember(resumeTick) {
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
     }
+    val panelOn = remember(resumeTick) { isPanelEnabled(context) }
+    val canWrite = remember(resumeTick) { Settings.System.canWrite(context) }
     var wallpaperStatus by remember { mutableStateOf("NOT SET") }
     var name by remember { mutableStateOf(user.name) }
     var nameStatus by remember { mutableStateOf(user.name.uppercase()) }
@@ -129,7 +152,7 @@ private fun SetupScreen(resumeTick: Int) {
             style = HudType.title.copy(fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 30.sp, letterSpacing = 6.sp),
         )
         Spacer(Modifier.height(4.dp))
-        BasicText("SETUP // V2", style = HudType.header)
+        BasicText("SETUP // V3", style = HudType.header)
         Spacer(Modifier.height(24.dp))
 
         SetupCard(
@@ -200,28 +223,47 @@ private fun SetupScreen(resumeTick: Int) {
 
         SetupCard(
             step = "05",
-            title = "MUSIC ACCESS",
+            title = "MUSIC & NOTIFICATIONS",
             status = if (musicAccess) "GRANTED" else "OFF",
             ok = musicAccess,
-            body = "Turn on WEBLINE in Notification access so the music card can show and control the song that's playing. The notification panel will use it too.",
+            body = "Turn on WEBLINE in Notification access. The music card uses it to show the playing song, and the panel uses it to list and clear your notifications.",
         ) {
             HudButton(if (musicAccess) "MANAGE ACCESS" else "ALLOW ACCESS") {
-                try {
-                    context.startActivity(
-                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Open Settings → Notifications → Notification access", Toast.LENGTH_LONG).show()
-                }
+                openScreen(context, Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
         }
 
         SetupCard(
             step = "06",
+            title = "NOTIFICATION PANEL",
+            status = if (panelOn) "ON" else "OFF",
+            ok = panelOn,
+            body = "In Accessibility, open \"WEBLINE Panel\" (under Downloaded apps / Installed services) and turn it on. " +
+                "It only watches for the pull-down swipe and the Back button. It never reads your screen.",
+        ) {
+            HudButton(if (panelOn) "MANAGE PANEL" else "OPEN ACCESSIBILITY") {
+                openScreen(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        }
+
+        SetupCard(
+            step = "07",
+            title = "BRIGHTNESS CONTROL",
+            status = if (canWrite) "ALLOWED" else "OFF",
+            ok = canWrite,
+            body = "Lets the panel's brightness slider change your screen brightness (Modify system settings).",
+        ) {
+            HudButton("ALLOW", enabled = !canWrite) {
+                openScreen(context, Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${context.packageName}")))
+            }
+        }
+
+        SetupCard(
+            step = "08",
             title = "KEEP ALIVE ON XOS",
             status = if (batteryFree) "UNRESTRICTED" else "RESTRICTED",
             ok = batteryFree,
-            body = "XOS closes background apps aggressively. Turn off battery optimization, then in Phone Master allow WEBLINE to auto-start.",
+            body = "XOS closes background apps aggressively. Turn off battery optimization, then in Phone Master allow WEBLINE to auto-start, or the panel may stop working.",
         ) {
             HudButton("BATTERY OPTIMIZATION", enabled = !batteryFree) {
                 SystemActions.requestIgnoreBattery(context)
