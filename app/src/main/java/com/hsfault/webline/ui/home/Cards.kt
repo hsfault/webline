@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.text.format.DateFormat
-import android.view.KeyEvent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -59,6 +60,7 @@ import com.hsfault.webline.data.Sky
 import com.hsfault.webline.data.WeatherNow
 import com.hsfault.webline.data.conditionText
 import com.hsfault.webline.data.skyOf
+import com.hsfault.webline.media.NowPlaying
 import com.hsfault.webline.ui.components.UiIcon
 import com.hsfault.webline.ui.components.drawUiIcon
 import com.hsfault.webline.ui.theme.GlowSeg
@@ -251,7 +253,6 @@ private fun DrawScope.drawWeatherIcon(sky: Sky, isDay: Boolean) {
                 )
             }
         } else {
-            // Crescent moon: cut a circle out of the red disc.
             drawCircle(Color.Black, r * 0.85f * u, o(cx + r * 0.55f, cy - r * 0.4f), blendMode = BlendMode.Clear)
         }
     }
@@ -301,20 +302,45 @@ private fun DrawScope.drawWeatherIcon(sky: Sky, isDay: Boolean) {
 // ---------- Music card ----------
 
 @Composable
-fun MusicCard(k: Float, onOpen: () -> Unit, onMediaKey: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun MusicCard(
+    k: Float,
+    nowPlaying: NowPlaying?,
+    hasAccess: Boolean,
+    onOpen: () -> Unit,
+    onPrev: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val title = nowPlaying?.title ?: "Not Playing"
+    val subtitle = when {
+        nowPlaying != null -> nowPlaying.artist
+        !hasAccess -> "Enable music access in Setup"
+        else -> "Tap to open music"
+    }
+
     Box(
         modifier
             .hudCard(16.dp * k, 12.dp * k, 28.dp * k, 12.dp * k, glows = MUSIC_GLOWS)
             .clickable(remember { MutableInteractionSource() }, null, onClick = onOpen)
-            .padding(horizontal = 11.dp * k, vertical = 7.dp * k),
+            .padding(horizontal = 10.dp * k, vertical = 7.dp * k),
         contentAlignment = Alignment.CenterStart,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(64.dp * k)
-                    .clip(RoundedCornerShape(10.dp * k))
-                    .drawWithCache {
+            val artModifier = Modifier
+                .size(54.dp * k)
+                .clip(RoundedCornerShape(10.dp * k))
+            val art = nowPlaying?.art
+            if (art != null) {
+                Image(
+                    bitmap = art,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = artModifier,
+                )
+            } else {
+                Box(
+                    artModifier.drawWithCache {
                         val w = size.width
                         val h = size.height
                         onDrawBehind {
@@ -349,19 +375,30 @@ fun MusicCard(k: Float, onOpen: () -> Unit, onMediaKey: (Int) -> Unit, modifier:
                             }
                         }
                     }
-            )
-            Spacer(Modifier.width(14.dp * k))
-            Column {
-                BasicText("Not Playing", style = HudType.cardTitle.copy(fontSize = (14 * k).sp))
+                )
+            }
+            Spacer(Modifier.width(10.dp * k))
+            Column(Modifier.weight(1f)) {
+                BasicText(
+                    text = title,
+                    style = HudType.cardTitle.copy(fontSize = (14 * k).sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(Modifier.height(1.dp))
-                BasicText("Tap to open music", style = HudType.cardSub.copy(fontSize = (11 * k).sp))
-                Spacer(Modifier.height(4.dp * k))
+                BasicText(
+                    text = subtitle,
+                    style = HudType.cardSub.copy(fontSize = (11 * k).sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp * k))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MediaButton(UiIcon.PREV, 30.dp * k, 14.dp * k) { onMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS) }
-                    Spacer(Modifier.width(10.dp * k))
-                    PlayButton(34.dp * k) { onMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) }
-                    Spacer(Modifier.width(10.dp * k))
-                    MediaButton(UiIcon.NEXT, 30.dp * k, 14.dp * k) { onMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT) }
+                    MediaButton(UiIcon.PREV, 28.dp * k, 13.dp * k, onPrev)
+                    Spacer(Modifier.width(4.dp * k))
+                    PlayButton(32.dp * k, playing = nowPlaying?.playing == true, onClick = onPlayPause)
+                    Spacer(Modifier.width(4.dp * k))
+                    MediaButton(UiIcon.NEXT, 28.dp * k, 13.dp * k, onNext)
                 }
             }
         }
@@ -381,7 +418,7 @@ private fun MediaButton(icon: UiIcon, box: Dp, glyph: Dp, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PlayButton(box: Dp, onClick: () -> Unit) {
+private fun PlayButton(box: Dp, playing: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(box)
@@ -394,7 +431,15 @@ private fun PlayButton(box: Dp, onClick: () -> Unit) {
             .clickable(remember { MutableInteractionSource() }, null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(box * 0.38f).offset(x = 1.dp)) { drawUiIcon(UiIcon.PLAY, Hud.Red) }
+        if (playing) {
+            Canvas(Modifier.size(box * 0.34f)) {
+                val barW = size.width * 0.3f
+                drawRoundRect(Hud.Red, Offset(size.width * 0.1f, 0f), Size(barW, size.height), CornerRadius(barW / 3f))
+                drawRoundRect(Hud.Red, Offset(size.width * 0.6f, 0f), Size(barW, size.height), CornerRadius(barW / 3f))
+            }
+        } else {
+            Canvas(Modifier.size(box * 0.38f).offset(x = 1.dp)) { drawUiIcon(UiIcon.PLAY, Hud.Red) }
+        }
     }
 }
 

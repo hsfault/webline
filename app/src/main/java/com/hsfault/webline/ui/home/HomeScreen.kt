@@ -20,11 +20,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hsfault.webline.data.AppEntry
 import com.hsfault.webline.data.Folder
 import com.hsfault.webline.data.LayoutStore
 import com.hsfault.webline.data.WeatherNow
+import com.hsfault.webline.media.NowPlaying
 import com.hsfault.webline.ui.components.HudMenu
 import com.hsfault.webline.ui.components.MenuAction
 
@@ -36,7 +38,10 @@ class HomeActions(
     val openClock: () -> Unit,
     val refreshWeather: () -> Unit,
     val openMusic: () -> Unit,
-    val mediaKey: (Int) -> Unit,
+    val musicPrev: () -> Unit,
+    val musicPlayPause: () -> Unit,
+    val musicNext: () -> Unit,
+    val openStorage: () -> Unit,
     val voiceSearch: () -> Unit,
 )
 
@@ -66,23 +71,34 @@ private sealed interface PickTarget {
 }
 
 private const val EXTRA_PAGE_SIZE = 20
+private const val FIXED_PAGES = 2 // 0 = home, 1 = info page
 
 @Composable
 fun HomeScreen(
     apps: List<AppEntry>,
     layout: LayoutStore,
     weather: WeatherNow?,
+    nowPlaying: NowPlaying?,
+    hasMusicAccess: Boolean,
+    userName: String,
     drawerOpen: Boolean,
     homeSignal: Int,
     onDrawerOpenChange: (Boolean) -> Unit,
     actions: HomeActions,
 ) {
+    val ownPackage = LocalContext.current.packageName
     val byKey = remember(apps) { apps.associateBy { it.key } }
     val slots = remember(byKey, layout.slots) { layout.slots.map { resolveSlot(it, byKey) } }
     val dock = remember(byKey, layout.dock) { layout.dock.map { resolveSlot(it, byKey) } }
     val extras = remember(byKey, layout.extras) { layout.extras.mapNotNull { byKey[it] } }
     val extraPages = remember(extras) { extras.chunked(EXTRA_PAGE_SIZE) }
-    val pagerState = rememberPagerState(pageCount = { 1 + extraPages.size })
+    val recent = remember(apps) {
+        apps.filter { it.installedAt > 0L && it.component.packageName != ownPackage }
+            .sortedByDescending { it.installedAt }
+            .distinctBy { it.component.packageName }
+            .take(12)
+    }
+    val pagerState = rememberPagerState(pageCount = { FIXED_PAGES + extraPages.size })
 
     var menu by remember { mutableStateOf<MenuTarget?>(null) }
     var pick by remember { mutableStateOf<PickTarget?>(null) }
@@ -187,32 +203,47 @@ fun HomeScreen(
     ) {
         val geo = Geo(maxWidth, maxHeight)
 
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-            if (page == 0) {
-                HomeComposition(
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1,
+        ) { page ->
+            when (page) {
+                0 -> HomeComposition(
                     geo = geo,
                     slots = slots,
                     weather = weather,
+                    nowPlaying = nowPlaying,
+                    hasMusicAccess = hasMusicAccess,
                     onSlotTap = { i -> tapSlot(slots[i]) { menu = MenuTarget.Slot(i) } },
                     onSlotLongPress = { i -> menu = MenuTarget.Slot(i) },
                     onClock = actions.openClock,
                     onWeather = actions.refreshWeather,
                     onOpenMusic = actions.openMusic,
-                    onMediaKey = actions.mediaKey,
+                    onMusicPrev = actions.musicPrev,
+                    onMusicPlayPause = actions.musicPlayPause,
+                    onMusicNext = actions.musicNext,
                 )
-            } else {
-                ExtraPage(
+                1 -> InfoPage(
                     geo = geo,
-                    apps = extraPages.getOrElse(page - 1) { emptyList() },
+                    userName = userName,
+                    recent = recent,
+                    visible = pagerState.currentPage == 1,
+                    onSearch = { onDrawerOpenChange(true) },
+                    onLaunch = actions.launch,
+                    onLongPress = { menu = MenuTarget.DrawerApp(it) },
+                    onStorage = actions.openStorage,
+                )
+                else -> ExtraPage(
+                    geo = geo,
+                    apps = extraPages.getOrElse(page - FIXED_PAGES) { emptyList() },
                     onTap = actions.launch,
                     onLongPress = { menu = MenuTarget.Extra(it) },
                 )
             }
         }
 
-        if (extraPages.isNotEmpty()) {
-            PageDots(geo, count = 1 + extraPages.size, current = pagerState.currentPage)
-        }
+        PageDots(geo, count = FIXED_PAGES + extraPages.size, current = pagerState.currentPage)
 
         Dock(
             geo = geo,

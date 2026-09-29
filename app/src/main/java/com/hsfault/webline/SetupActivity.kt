@@ -1,8 +1,10 @@
 package com.hsfault.webline
 
 import android.app.role.RoleManager
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -44,6 +46,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import com.hsfault.webline.data.UserPrefs
 import com.hsfault.webline.data.WeatherRepository
 import com.hsfault.webline.ui.components.HudButton
 import com.hsfault.webline.ui.theme.ChakraPetch
@@ -83,9 +87,15 @@ private fun SetupScreen(resumeTick: Int) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val weather = remember { WeatherRepository(context) }
+    val user = remember { UserPrefs(context) }
     val isHome = remember(resumeTick) { SystemActions.isDefaultHome(context) }
     val batteryFree = remember(resumeTick) { SystemActions.isIgnoringBattery(context) }
+    val musicAccess = remember(resumeTick) {
+        NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    }
     var wallpaperStatus by remember { mutableStateOf("NOT SET") }
+    var name by remember { mutableStateOf(user.name) }
+    var nameStatus by remember { mutableStateOf(user.name.uppercase()) }
     var city by remember { mutableStateOf(weather.city) }
     var cityStatus by remember { mutableStateOf(weather.city.uppercase()) }
 
@@ -158,12 +168,26 @@ private fun SetupScreen(resumeTick: Int) {
 
         SetupCard(
             step = "03",
+            title = "YOUR NAME",
+            status = nameStatus,
+            ok = true,
+            body = "Shown on the greeting card on the second page.",
+        ) {
+            TextFieldBox(value = name, placeholder = "Your name") { name = it }
+            HudButton("SAVE NAME") {
+                user.name = name
+                nameStatus = user.name.uppercase()
+            }
+        }
+
+        SetupCard(
+            step = "04",
             title = "WEATHER CITY",
             status = cityStatus,
             ok = true,
             body = "Weather comes from Open-Meteo (free, no account). Type your city and save.",
         ) {
-            CityField(city) { city = it }
+            TextFieldBox(value = city, placeholder = "City name") { city = it }
             HudButton("SAVE CITY") {
                 weather.setCity(city)
                 cityStatus = city.trim().uppercase().ifEmpty { WeatherRepository.DEFAULT_CITY.uppercase() }
@@ -175,11 +199,29 @@ private fun SetupScreen(resumeTick: Int) {
         }
 
         SetupCard(
-            step = "04",
+            step = "05",
+            title = "MUSIC ACCESS",
+            status = if (musicAccess) "GRANTED" else "OFF",
+            ok = musicAccess,
+            body = "Turn on WEBLINE in Notification access so the music card can show and control the song that's playing. The notification panel will use it too.",
+        ) {
+            HudButton(if (musicAccess) "MANAGE ACCESS" else "ALLOW ACCESS") {
+                try {
+                    context.startActivity(
+                        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Open Settings → Notifications → Notification access", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        SetupCard(
+            step = "06",
             title = "KEEP ALIVE ON XOS",
             status = if (batteryFree) "UNRESTRICTED" else "RESTRICTED",
             ok = batteryFree,
-            body = "XOS closes background apps aggressively. Turn off battery optimization, then in Phone Master allow WEBLINE to auto-start. This matters most once the notification panel arrives.",
+            body = "XOS closes background apps aggressively. Turn off battery optimization, then in Phone Master allow WEBLINE to auto-start.",
         ) {
             HudButton("BATTERY OPTIMIZATION", enabled = !batteryFree) {
                 SystemActions.requestIgnoreBattery(context)
@@ -223,7 +265,7 @@ private fun SetupCard(
 }
 
 @Composable
-private fun CityField(value: String, onChange: (String) -> Unit) {
+private fun TextFieldBox(value: String, placeholder: String, onChange: (String) -> Unit) {
     val shape = RoundedCornerShape(10.dp)
     BasicTextField(
         value = value,
@@ -242,7 +284,7 @@ private fun CityField(value: String, onChange: (String) -> Unit) {
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (value.isEmpty()) BasicText("City name", style = HudType.body.copy(color = Hud.Grey))
+                if (value.isEmpty()) BasicText(placeholder, style = HudType.body.copy(color = Hud.Grey))
                 inner()
             }
         },

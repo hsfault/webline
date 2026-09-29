@@ -10,6 +10,7 @@ import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
+import android.util.LruCache
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -27,12 +28,24 @@ import androidx.compose.ui.graphics.Path as ComposePath
  */
 data class GlowSeg(val edge: Int, val from: Float = 0f, val to: Float = 1f)
 
-/** Renders the 3D slabs, cards and tiles into bitmaps once, with real blur glows. */
+/** Renders the 3D slabs, cards and tiles into bitmaps once, with real blur glows, and caches them. */
 object HudPaint {
 
     private val GLOW = 0xFFFF2A2A.toInt()
     private val HOT = 0xFFFF9C9C.toInt()
     private val tileCache = HashMap<String, ImageBitmap>()
+
+    /** Card/plate bitmaps, reused across recompositions and page swipes (48 MB budget). */
+    private val slabCache = object : LruCache<String, ImageBitmap>(48 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+    }
+
+    fun cachedSlab(key: String, build: () -> Bitmap): ImageBitmap {
+        slabCache.get(key)?.let { return it }
+        val image = build().asImageBitmap()
+        slabCache.put(key, image)
+        return image
+    }
 
     fun cutPoints(w: Float, h: Float, tl: Float, tr: Float, br: Float, bl: Float): List<PointF> = listOf(
         PointF(tl, 0f), PointF(w - tr, 0f), PointF(w, tr), PointF(w, h - br),
@@ -252,14 +265,17 @@ fun hudCutPath(size: Size, tl: Float, tr: Float, br: Float, bl: Float): ComposeP
     close()
 }
 
-/** Angled glass card with shadow, 3D edge, sheen and glowing edges. */
+/** Angled glass card with shadow, 3D edge, sheen and glowing edges. Rendered once per size, then cached. */
 fun Modifier.hudCard(tl: Dp, tr: Dp, br: Dp, bl: Dp, glows: List<GlowSeg> = emptyList()): Modifier = drawWithCache {
     val w = size.width.toInt()
     val h = size.height.toInt()
     if (w < 2 || h < 2) return@drawWithCache onDrawBehind { }
     val margin = 28.dp.toPx().toInt()
-    val pts = HudPaint.cutPoints(size.width, size.height, tl.toPx(), tr.toPx(), br.toPx(), bl.toPx())
-    val image = HudPaint.renderSlab(w, h, margin, pts, glows, density, plate = false).asImageBitmap()
+    val key = "card:$w:$h:${tl.value}:${tr.value}:${br.value}:${bl.value}:$density:$glows"
+    val image = HudPaint.cachedSlab(key) {
+        val pts = HudPaint.cutPoints(size.width, size.height, tl.toPx(), tr.toPx(), br.toPx(), bl.toPx())
+        HudPaint.renderSlab(w, h, margin, pts, glows, density, plate = false)
+    }
     onDrawBehind { drawImage(image, topLeft = Offset(-margin.toFloat(), -margin.toFloat())) }
 }
 
@@ -269,7 +285,10 @@ fun Modifier.hudPlate(points: List<Offset>, glows: List<GlowSeg>): Modifier = dr
     val h = size.height.toInt()
     if (w < 2 || h < 2) return@drawWithCache onDrawBehind { }
     val margin = 28.dp.toPx().toInt()
-    val pts = points.map { PointF(it.x * size.width, it.y * size.height) }
-    val image = HudPaint.renderSlab(w, h, margin, pts, glows, density, plate = true).asImageBitmap()
+    val key = "plate:$w:$h:$density:$points:$glows"
+    val image = HudPaint.cachedSlab(key) {
+        val pts = points.map { PointF(it.x * size.width, it.y * size.height) }
+        HudPaint.renderSlab(w, h, margin, pts, glows, density, plate = true)
+    }
     onDrawBehind { drawImage(image, topLeft = Offset(-margin.toFloat(), -margin.toFloat())) }
 }

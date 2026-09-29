@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.hsfault.webline.data.AppEntry
 import com.hsfault.webline.data.GlyphSource
 import com.hsfault.webline.data.WeatherNow
+import com.hsfault.webline.media.NowPlaying
 import com.hsfault.webline.ui.components.HudTile
 import com.hsfault.webline.ui.theme.GlowSeg
 import com.hsfault.webline.ui.theme.Hud
@@ -34,7 +35,7 @@ class Geo(val w: Dp, val h: Dp) {
     fun y(f: Float): Dp = h * f
 }
 
-private const val TILE = 0.118f
+private const val TILE = 0.108f
 private const val PAD_X = 0.10f
 private const val PAD_Y = 0.045f
 
@@ -47,28 +48,28 @@ private class ClusterSpec(
 
 /** Positions measured from the reference design (fractions of screen width, height). */
 private val CLUSTERS = listOf(
-    // Left staircase: YouTube, Instagram, Maps
+    // Left staircase
     ClusterSpec(
-        plate = listOf(Offset(0.035f, 0.290f), Offset(0.230f, 0.292f), Offset(0.320f, 0.492f), Offset(0.075f, 0.505f)),
+        plate = listOf(Offset(0.035f, 0.290f), Offset(0.230f, 0.292f), Offset(0.320f, 0.500f), Offset(0.075f, 0.512f)),
         glows = listOf(GlowSeg(3, 0.55f, 1f), GlowSeg(0, 0f, 0.3f), GlowSeg(2, 0f, 0.35f)),
-        tiles = listOf(0 to Offset(0.113f, 0.334f), 1 to Offset(0.224f, 0.397f), 2 to Offset(0.160f, 0.461f)),
+        tiles = listOf(0 to Offset(0.113f, 0.334f), 1 to Offset(0.230f, 0.393f), 2 to Offset(0.150f, 0.470f)),
         tiltY = 8f,
     ),
-    // Right staircase: Play Store, Gmail, Calculator
+    // Right staircase
     ClusterSpec(
         plate = listOf(Offset(0.800f, 0.325f), Offset(0.965f, 0.335f), Offset(0.905f, 0.585f), Offset(0.690f, 0.575f)),
         glows = listOf(GlowSeg(1), GlowSeg(2, 0f, 0.3f)),
         tiles = listOf(3 to Offset(0.880f, 0.369f), 4 to Offset(0.832f, 0.448f), 5 to Offset(0.797f, 0.527f)),
         tiltY = -8f,
     ),
-    // Bottom-left row: Settings, Tools, Gallery
+    // Bottom-left row
     ClusterSpec(
         plate = listOf(Offset(0.075f, 0.662f), Offset(0.495f, 0.688f), Offset(0.490f, 0.772f), Offset(0.060f, 0.748f)),
         glows = listOf(GlowSeg(3), GlowSeg(0, 0f, 0.25f)),
         tiles = listOf(6 to Offset(0.172f, 0.695f), 7 to Offset(0.312f, 0.709f), 8 to Offset(0.438f, 0.719f)),
         tiltY = 6f,
     ),
-    // Bottom-right row: Camera, Calendar, Social
+    // Bottom-right row
     ClusterSpec(
         plate = listOf(Offset(0.545f, 0.738f), Offset(0.940f, 0.640f), Offset(0.960f, 0.722f), Offset(0.560f, 0.822f)),
         glows = listOf(GlowSeg(1), GlowSeg(3, 0f, 0.5f)),
@@ -85,12 +86,16 @@ fun HomeComposition(
     geo: Geo,
     slots: List<SlotItem>,
     weather: WeatherNow?,
+    nowPlaying: NowPlaying?,
+    hasMusicAccess: Boolean,
     onSlotTap: (Int) -> Unit,
     onSlotLongPress: (Int) -> Unit,
     onClock: () -> Unit,
     onWeather: () -> Unit,
     onOpenMusic: () -> Unit,
-    onMediaKey: (Int) -> Unit,
+    onMusicPrev: () -> Unit,
+    onMusicPlayPause: () -> Unit,
+    onMusicNext: () -> Unit,
 ) {
     val k = geo.k
     Box(Modifier.fillMaxSize()) {
@@ -120,8 +125,12 @@ fun HomeComposition(
 
         MusicCard(
             k = k,
+            nowPlaying = nowPlaying,
+            hasAccess = hasMusicAccess,
             onOpen = onOpenMusic,
-            onMediaKey = onMediaKey,
+            onPrev = onMusicPrev,
+            onPlayPause = onMusicPlayPause,
+            onNext = onMusicNext,
             modifier = Modifier
                 .offset(geo.x(0.065f), geo.y(0.535f))
                 .size(geo.x(0.518f), geo.y(0.105f))
@@ -211,7 +220,7 @@ fun SlotTile(
         modifier = modifier,
         rounded = rounded,
         labelWidth = labelWidth,
-        labelSize = (11 * k).sp,
+        labelSize = (10.5f * k).sp,
     )
 }
 
