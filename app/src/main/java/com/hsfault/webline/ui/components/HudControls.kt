@@ -20,13 +20,14 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hsfault.webline.ui.theme.GlowSeg
 import com.hsfault.webline.ui.theme.Hud
 import com.hsfault.webline.ui.theme.HudType
-import com.hsfault.webline.ui.theme.hudFrame
+import com.hsfault.webline.ui.theme.hudCard
 
 data class MenuAction(
     val label: String,
@@ -34,27 +35,30 @@ data class MenuAction(
     val onClick: () -> Unit,
 )
 
+private val MENU_GLOWS = listOf(GlowSeg(7), GlowSeg(5), GlowSeg(1))
+private val BUTTON_GLOWS = listOf(GlowSeg(4, 0.15f, 0.85f))
+
 @Composable
 fun HudMenu(title: String, actions: List<MenuAction>, onDismiss: () -> Unit) {
     BackHandler(onBack = onDismiss)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Hud.Void.copy(alpha = 0.72f))
+            .background(Color.Black.copy(alpha = 0.7f))
             .pointerInput(Unit) { detectTapGestures { onDismiss() } },
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
-                .padding(horizontal = 40.dp)
+                .padding(horizontal = 44.dp)
                 .fillMaxWidth()
                 .pointerInput(Unit) { detectTapGestures { } }
-                .hudFrame(cut = 16.dp)
+                .hudCard(12.dp, 26.dp, 12.dp, 18.dp, glows = MENU_GLOWS)
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             BasicText(
-                text = "// ${title.uppercase()}",
-                style = HudType.label.copy(color = Hud.Crimson),
+                text = title.uppercase(),
+                style = HudType.header,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -70,13 +74,13 @@ fun HudMenu(title: String, actions: List<MenuAction>, onDismiss: () -> Unit) {
                         },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Canvas(Modifier.size(8.dp)) {
-                        drawCircle(if (action.enabled) Hud.Glow else Hud.Muted)
+                    Canvas(Modifier.size(7.dp)) {
+                        drawCircle(if (action.enabled) Hud.Glow else Hud.Grey)
                     }
                     Spacer(Modifier.width(14.dp))
                     BasicText(
                         text = action.label,
-                        style = HudType.action.copy(color = if (action.enabled) Hud.Light else Hud.Muted),
+                        style = HudType.menu.copy(color = if (action.enabled) Hud.White else Hud.Grey),
                     )
                 }
             }
@@ -95,18 +99,13 @@ fun HudButton(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 46.dp)
-            .hudFrame(
-                cut = 10.dp,
-                fill = SolidColor(if (enabled) Hud.Maroon.copy(alpha = 0.75f) else Hud.Night),
-                stroke = if (enabled) Hud.Crimson.copy(alpha = 0.8f) else Hud.Silver.copy(alpha = 0.25f),
-                accent = if (enabled) Hud.Glow else Hud.Muted,
-            )
+            .hudCard(8.dp, 8.dp, 8.dp, 8.dp, glows = if (enabled) BUTTON_GLOWS else emptyList())
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         BasicText(
             text = text,
-            style = HudType.action.copy(color = if (enabled) Hud.Light else Hud.Muted),
+            style = HudType.menu.copy(color = if (enabled) Hud.White else Hud.Grey),
         )
     }
 }

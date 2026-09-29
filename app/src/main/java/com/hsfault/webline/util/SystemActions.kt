@@ -4,15 +4,20 @@ import android.annotation.SuppressLint
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.net.Uri
 import android.os.PowerManager
+import android.provider.AlarmClock
 import android.provider.Settings
+import android.speech.RecognizerIntent
+import android.view.KeyEvent
 
 object SystemActions {
 
     private const val PHONE_MASTER = "com.transsion.phonemaster"
+    private val MUSIC_FALLBACKS = listOf("com.spotify.music", "com.google.android.apps.youtube.music")
 
-    /** Temporary until our own panel (Phase 4): opens the system notification shade. */
+    /** Temporary until our own panel arrives: opens the system notification shade. */
     @SuppressLint("WrongConstant", "PrivateApi")
     fun expandNotifications(context: Context) {
         try {
@@ -63,6 +68,32 @@ object SystemActions {
 
     fun goHome(context: Context) {
         start(context, Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
+    }
+
+    fun openClock(context: Context) {
+        start(context, Intent(AlarmClock.ACTION_SHOW_ALARMS))
+    }
+
+    fun openMusic(context: Context): Boolean {
+        if (start(context, Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MUSIC))) return true
+        for (pkg in MUSIC_FALLBACKS) {
+            val intent = context.packageManager.getLaunchIntentForPackage(pkg) ?: continue
+            if (start(context, intent)) return true
+        }
+        return false
+    }
+
+    /** Sends play/pause/next/previous to whatever is playing. No permission needed. */
+    fun mediaKey(context: Context, keyCode: Int) {
+        val audio = context.getSystemService(AudioManager::class.java)
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+        audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+    }
+
+    fun voiceSearch(context: Context) {
+        if (!start(context, Intent(RecognizerIntent.ACTION_WEB_SEARCH))) {
+            start(context, Intent(Intent.ACTION_VOICE_COMMAND))
+        }
     }
 
     private fun start(context: Context, intent: Intent): Boolean = try {

@@ -7,21 +7,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,68 +18,156 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hsfault.webline.data.AppEntry
+import com.hsfault.webline.data.Folder
 import com.hsfault.webline.data.LayoutStore
-import com.hsfault.webline.ui.components.HudAppIcon
+import com.hsfault.webline.data.WeatherNow
 import com.hsfault.webline.ui.components.HudMenu
 import com.hsfault.webline.ui.components.MenuAction
-import com.hsfault.webline.ui.theme.Hud
 
-private const val COLUMNS = 4
-private const val FIRST_PAGE = 16 // page one: clock header + 4x4
-private const val PAGE = 20       // other pages: 4x5
+/** Everything the home screen asks the Activity to do. */
+class HomeActions(
+    val launch: (AppEntry) -> Unit,
+    val appInfo: (AppEntry) -> Unit,
+    val swipeDown: () -> Unit,
+    val openClock: () -> Unit,
+    val refreshWeather: () -> Unit,
+    val openMusic: () -> Unit,
+    val mediaKey: (Int) -> Unit,
+    val voiceSearch: () -> Unit,
+)
 
-private enum class Source { Drawer, Home, Dock }
-private data class MenuTarget(val app: AppEntry, val source: Source)
+/** What a home slot or dock slot currently holds. */
+sealed interface SlotItem {
+    data class App(val app: AppEntry) : SlotItem
+    data class FolderSlot(val folder: Folder) : SlotItem
+    data object Empty : SlotItem
+}
+
+fun resolveSlot(value: String, byKey: Map<String, AppEntry>): SlotItem =
+    Folder.fromToken(value)?.let { SlotItem.FolderSlot(it) }
+        ?: byKey[value]?.let { SlotItem.App(it) }
+        ?: SlotItem.Empty
+
+private sealed interface MenuTarget {
+    data class Slot(val index: Int) : MenuTarget
+    data class DockSlot(val index: Int) : MenuTarget
+    data class Extra(val app: AppEntry) : MenuTarget
+    data class DrawerApp(val app: AppEntry) : MenuTarget
+    data class FolderApp(val folder: Folder, val app: AppEntry) : MenuTarget
+}
+
+private sealed interface PickTarget {
+    data class Slot(val index: Int) : PickTarget
+    data class DockSlot(val index: Int) : PickTarget
+}
+
+private const val EXTRA_PAGE_SIZE = 20
 
 @Composable
 fun HomeScreen(
     apps: List<AppEntry>,
     layout: LayoutStore,
+    weather: WeatherNow?,
     drawerOpen: Boolean,
     homeSignal: Int,
     onDrawerOpenChange: (Boolean) -> Unit,
-    onLaunch: (AppEntry) -> Unit,
-    onAppInfo: (AppEntry) -> Unit,
-    onSwipeDown: () -> Unit,
+    actions: HomeActions,
 ) {
     val byKey = remember(apps) { apps.associateBy { it.key } }
-    val homeApps = remember(byKey, layout.home) { layout.home.mapNotNull { byKey[it] } }
-    val dockApps = remember(byKey, layout.dock) { layout.dock.mapNotNull { byKey[it] } }
-    val pages = remember(homeApps) {
-        buildList {
-            add(homeApps.take(FIRST_PAGE))
-            homeApps.drop(FIRST_PAGE).chunked(PAGE).forEach { add(it) }
-        }
-    }
-    val pagerState = rememberPagerState(pageCount = { pages.size })
-    var menu by remember { mutableStateOf<MenuTarget?>(null) }
+    val slots = remember(byKey, layout.slots) { layout.slots.map { resolveSlot(it, byKey) } }
+    val dock = remember(byKey, layout.dock) { layout.dock.map { resolveSlot(it, byKey) } }
+    val extras = remember(byKey, layout.extras) { layout.extras.mapNotNull { byKey[it] } }
+    val extraPages = remember(extras) { extras.chunked(EXTRA_PAGE_SIZE) }
+    val pagerState = rememberPagerState(pageCount = { 1 + extraPages.size })
 
-    // Home button pressed while already on the home screen: close things, go to page one.
+    var menu by remember { mutableStateOf<MenuTarget?>(null) }
+    var pick by remember { mutableStateOf<PickTarget?>(null) }
+    var openFolder by remember { mutableStateOf<Folder?>(null) }
+
+    // Home pressed while already home: close everything and return to page one.
     LaunchedEffect(homeSignal) {
         if (homeSignal > 0) {
             menu = null
+            pick = null
+            openFolder = null
             pagerState.animateScrollToPage(0)
         }
     }
 
-    // Swallow back on the home screen (the drawer and menu register their own handlers on top).
+    // Swallow back on the home screen; overlays register their own handlers on top.
     BackHandler { menu = null }
 
-    Box(
+    val overlayOpen = drawerOpen || pick != null || openFolder != null || menu != null
+
+    fun tapSlot(item: SlotItem, onEmpty: () -> Unit) {
+        when (item) {
+            is SlotItem.App -> actions.launch(item.app)
+            is SlotItem.FolderSlot -> openFolder = item.folder
+            SlotItem.Empty -> onEmpty()
+        }
+    }
+
+    fun assign(target: PickTarget, key: String) = when (target) {
+        is PickTarget.Slot -> layout.setSlot(target.index, key)
+        is PickTarget.DockSlot -> layout.setDock(target.index, key)
+    }
+
+    fun buildMenu(target: MenuTarget): Pair<String, List<MenuAction>> = when (target) {
+        is MenuTarget.Slot -> when (val item = slots.getOrElse(target.index) { SlotItem.Empty }) {
+            is SlotItem.App -> item.app.label to listOf(
+                MenuAction("REPLACE APP") { pick = PickTarget.Slot(target.index) },
+                MenuAction("REMOVE") { layout.setSlot(target.index, "") },
+                MenuAction("APP INFO") { actions.appInfo(item.app) },
+            )
+            is SlotItem.FolderSlot -> item.folder.title to listOf(
+                MenuAction("OPEN") { openFolder = item.folder },
+                MenuAction("REPLACE WITH APP") { pick = PickTarget.Slot(target.index) },
+                MenuAction("REMOVE") { layout.setSlot(target.index, "") },
+            )
+            SlotItem.Empty -> "Empty slot" to listOf(
+                MenuAction("ADD APP") { pick = PickTarget.Slot(target.index) },
+                MenuAction("ADD TOOLS FOLDER") { layout.setSlot(target.index, Folder.TOOLS.token) },
+                MenuAction("ADD SOCIAL FOLDER") { layout.setSlot(target.index, Folder.SOCIAL.token) },
+            )
+        }
+        is MenuTarget.DockSlot -> when (val item = dock.getOrElse(target.index) { SlotItem.Empty }) {
+            is SlotItem.App -> item.app.label to listOf(
+                MenuAction("REPLACE APP") { pick = PickTarget.DockSlot(target.index) },
+                MenuAction("REMOVE") { layout.setDock(target.index, "") },
+                MenuAction("APP INFO") { actions.appInfo(item.app) },
+            )
+            else -> "Dock slot" to listOf(
+                MenuAction("ADD APP") { pick = PickTarget.DockSlot(target.index) },
+            )
+        }
+        is MenuTarget.Extra -> target.app.label to listOf(
+            MenuAction("REMOVE FROM HOME") { layout.removeExtra(target.app.key) },
+            MenuAction("APP INFO") { actions.appInfo(target.app) },
+        )
+        is MenuTarget.DrawerApp -> target.app.label to listOfNotNull(
+            if (target.app.key in layout.extras) null
+            else MenuAction("ADD TO HOME PAGES") { layout.addExtra(target.app.key) },
+            if (target.app.key in layout.tools) null
+            else MenuAction("ADD TO TOOLS") { layout.addToFolder(Folder.TOOLS, target.app.key) },
+            if (target.app.key in layout.social) null
+            else MenuAction("ADD TO SOCIAL") { layout.addToFolder(Folder.SOCIAL, target.app.key) },
+            MenuAction("APP INFO") { actions.appInfo(target.app) },
+        )
+        is MenuTarget.FolderApp -> target.app.label to listOf(
+            MenuAction("REMOVE FROM FOLDER") { layout.removeFromFolder(target.folder, target.app.key) },
+            MenuAction("APP INFO") { actions.appInfo(target.app) },
+        )
+    }
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(drawerOpen) {
-                if (drawerOpen) return@pointerInput
+            .pointerInput(overlayOpen) {
+                if (overlayOpen) return@pointerInput
                 val threshold = 72.dp.toPx()
                 var total = 0f
                 detectVerticalDragGestures(
@@ -98,7 +175,7 @@ fun HomeScreen(
                     onDragEnd = {
                         when {
                             total < -threshold -> onDrawerOpenChange(true)
-                            total > threshold -> onSwipeDown()
+                            total > threshold -> actions.swipeDown()
                         }
                     },
                     onVerticalDrag = { change, dy ->
@@ -108,222 +185,85 @@ fun HomeScreen(
                 )
             },
     ) {
-        WebParallax(pagerState)
+        val geo = Geo(maxWidth, maxHeight)
 
-        Column(Modifier.fillMaxSize().systemBarsPadding()) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            ) { page ->
-                val pageApps = pages.getOrElse(page) { emptyList() }
-                Column(Modifier.fillMaxSize()) {
-                    if (page == 0) ClockHeader(Modifier.padding(top = 20.dp))
-                    IconGrid(
-                        apps = pageApps,
-                        rows = if (page == 0) FIRST_PAGE / COLUMNS else PAGE / COLUMNS,
-                        modifier = Modifier.weight(1f),
-                        onLaunch = onLaunch,
-                        onLongPress = { menu = MenuTarget(it, Source.Home) },
-                    )
-                }
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            if (page == 0) {
+                HomeComposition(
+                    geo = geo,
+                    slots = slots,
+                    weather = weather,
+                    onSlotTap = { i -> tapSlot(slots[i]) { menu = MenuTarget.Slot(i) } },
+                    onSlotLongPress = { i -> menu = MenuTarget.Slot(i) },
+                    onClock = actions.openClock,
+                    onWeather = actions.refreshWeather,
+                    onOpenMusic = actions.openMusic,
+                    onMediaKey = actions.mediaKey,
+                )
+            } else {
+                ExtraPage(
+                    geo = geo,
+                    apps = extraPages.getOrElse(page - 1) { emptyList() },
+                    onTap = actions.launch,
+                    onLongPress = { menu = MenuTarget.Extra(it) },
+                )
             }
-            PageIndicator(count = pages.size, current = pagerState.currentPage)
-            Dock(
-                apps = dockApps,
-                onLaunch = onLaunch,
-                onLongPress = { menu = MenuTarget(it, Source.Dock) },
-            )
         }
 
+        if (extraPages.isNotEmpty()) {
+            PageDots(geo, count = 1 + extraPages.size, current = pagerState.currentPage)
+        }
+
+        Dock(
+            geo = geo,
+            items = dock,
+            onTap = { i -> tapSlot(dock[i]) { pick = PickTarget.DockSlot(i) } },
+            onLongPress = { i -> menu = MenuTarget.DockSlot(i) },
+        )
+
         AnimatedVisibility(
-            visible = drawerOpen,
+            visible = drawerOpen || pick != null,
             enter = slideInVertically(tween(320)) { it / 3 } + fadeIn(tween(220)),
             exit = slideOutVertically(tween(260)) { it / 3 } + fadeOut(tween(200)),
         ) {
             AppDrawer(
                 apps = apps,
-                onClose = { onDrawerOpenChange(false) },
-                onLaunch = onLaunch,
-                onLongPress = { menu = MenuTarget(it, Source.Drawer) },
+                title = if (pick != null) "Select App" else "All Apps",
+                onClose = {
+                    pick = null
+                    onDrawerOpenChange(false)
+                },
+                onTap = { app ->
+                    val target = pick
+                    if (target != null) {
+                        assign(target, app.key)
+                        pick = null
+                        onDrawerOpenChange(false)
+                    } else {
+                        actions.launch(app)
+                    }
+                },
+                onLongPress = { app -> if (pick == null) menu = MenuTarget.DrawerApp(app) },
+                onVoiceSearch = actions.voiceSearch,
+            )
+        }
+
+        openFolder?.let { folder ->
+            FolderPopup(
+                folder = folder,
+                apps = layout.folder(folder).mapNotNull { byKey[it] },
+                onLaunch = { app ->
+                    openFolder = null
+                    actions.launch(app)
+                },
+                onLongPress = { app -> menu = MenuTarget.FolderApp(folder, app) },
+                onDismiss = { openFolder = null },
             )
         }
 
         menu?.let { target ->
-            HudMenu(
-                title = target.app.label,
-                actions = menuActions(target, layout, onAppInfo),
-                onDismiss = { menu = null },
-            )
+            val (title, list) = buildMenu(target)
+            HudMenu(title = title, actions = list, onDismiss = { menu = null })
         }
     }
 }
-
-private fun menuActions(
-    target: MenuTarget,
-    layout: LayoutStore,
-    onAppInfo: (AppEntry) -> Unit,
-): List<MenuAction> {
-    val key = target.app.key
-    val dockFull = layout.dock.size >= LayoutStore.DOCK_SIZE
-    val dockAction = if (key in layout.dock) null else {
-        MenuAction(if (dockFull) "DOCK FULL" else "ADD TO DOCK", enabled = !dockFull) { layout.addToDock(key) }
-    }
-    val info = MenuAction("APP INFO") { onAppInfo(target.app) }
-
-    return when (target.source) {
-        Source.Drawer -> listOfNotNull(
-            if (key in layout.home) null else MenuAction("ADD TO HOME") { layout.addToHome(key) },
-            dockAction,
-            info,
-        )
-        Source.Home -> listOfNotNull(
-            MenuAction("REMOVE FROM HOME") { layout.removeFromHome(key) },
-            dockAction,
-            info,
-        )
-        Source.Dock -> listOf(
-            MenuAction("REMOVE FROM DOCK") { layout.removeFromDock(key) },
-            info,
-        )
-    }
-}
-
-@Composable
-private fun IconGrid(
-    apps: List<AppEntry>,
-    rows: Int,
-    modifier: Modifier,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
-) {
-    Column(modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
-        for (r in 0 until rows) {
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                for (c in 0 until COLUMNS) {
-                    val app = apps.getOrNull(r * COLUMNS + c)
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        if (app != null) {
-                            HudAppIcon(
-                                app = app,
-                                onClick = { onLaunch(app) },
-                                onLongClick = { onLongPress(app) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PageIndicator(count: Int, current: Int) {
-    if (count <= 1) {
-        Spacer(Modifier.height(18.dp))
-        return
-    }
-    Canvas(Modifier.fillMaxWidth().height(18.dp)) {
-        val gap = 18.dp.toPx()
-        val total = gap * (count - 1)
-        val startX = (size.width - total) / 2f
-        val y = size.height / 2f
-        drawLine(Hud.Silver.copy(alpha = 0.3f), Offset(startX, y), Offset(startX + total, y), 1.dp.toPx())
-        for (i in 0 until count) {
-            val p = Offset(startX + gap * i, y)
-            if (i == current) {
-                drawCircle(Hud.Glow.copy(alpha = 0.35f), 7.dp.toPx(), p)
-                drawCircle(Hud.Glow, 3.dp.toPx(), p)
-            } else {
-                drawCircle(Hud.Silver.copy(alpha = 0.6f), 2.dp.toPx(), p)
-            }
-        }
-    }
-}
-
-/** Dock: icons sit as nodes on a curved web strand. */
-@Composable
-private fun Dock(
-    apps: List<AppEntry>,
-    onLaunch: (AppEntry) -> Unit,
-    onLongPress: (AppEntry) -> Unit,
-) {
-    val slots = LayoutStore.DOCK_SIZE
-    val edge = 24.dp
-    val dip = 20.dp
-
-    Box(Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 4.dp)) {
-        Canvas(Modifier.fillMaxSize()) {
-            val y0 = edge.toPx()
-            val sag = dip.toPx()
-            val strand = Path().apply {
-                moveTo(0f, y0)
-                quadraticBezierTo(size.width / 2f, y0 + 2f * sag, size.width, y0)
-            }
-            drawPath(strand, Hud.Crimson.copy(alpha = 0.22f), style = Stroke(width = 6.dp.toPx()))
-            drawPath(strand, Hud.Silver.copy(alpha = 0.75f), style = Stroke(width = 1.2.dp.toPx()))
-            for (i in apps.size until slots) {
-                val f = (i + 0.5f) / slots
-                val p = Offset(size.width * f, y0 + 4f * f * (1f - f) * sag)
-                drawCircle(Hud.Glow.copy(alpha = 0.25f), 6.dp.toPx(), p)
-                drawCircle(Hud.Glow, 2.dp.toPx(), p)
-            }
-        }
-        Row(Modifier.fillMaxSize()) {
-            for (i in 0 until slots) {
-                val f = (i + 0.5f) / slots
-                val centerY = edge + dip * (4f * f * (1f - f))
-                val app = apps.getOrNull(i)
-                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                    if (app != null) {
-                        HudAppIcon(
-                            app = app,
-                            onClick = { onLaunch(app) },
-                            onLongClick = { onLongPress(app) },
-                            iconSize = 48.dp,
-                            showLabel = false,
-                            modifier = Modifier.offset(y = centerY - 28.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Faint web strands behind the icons that drift slightly as you swipe pages. */
-@Composable
-private fun WebParallax(pagerState: PagerState) {
-    val shiftPerPage = with(LocalDensity.current) { 40.dp.toPx() }
-    Canvas(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationX = -(pagerState.currentPage + pagerState.currentPageOffsetFraction) * shiftPerPage
-            }
-    ) {
-        val w = size.width
-        val h = size.height
-        val strandColor = Hud.Silver.copy(alpha = 0.16f)
-        STRANDS.forEach { s ->
-            val a = Offset(s[0] * w, s[1] * h)
-            val b = Offset(s[2] * w, s[3] * h)
-            drawLine(strandColor, a, b, 1.dp.toPx())
-            listOf(0.32f, 0.71f).forEach { t ->
-                val p = Offset(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
-                drawCircle(Hud.Glow.copy(alpha = 0.18f), 5.dp.toPx(), p)
-                drawCircle(Hud.Glow.copy(alpha = 0.7f), 1.5.dp.toPx(), p)
-            }
-        }
-    }
-}
-
-private val STRANDS = listOf(
-    floatArrayOf(-0.3f, 0.10f, 1.5f, 0.34f),
-    floatArrayOf(-0.4f, 0.58f, 1.7f, 0.40f),
-    floatArrayOf(0.2f, 1.05f, 1.4f, 0.64f),
-    floatArrayOf(-0.5f, 0.82f, 0.8f, 1.08f),
-    floatArrayOf(0.6f, -0.05f, 1.9f, 0.55f),
-)

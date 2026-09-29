@@ -3,6 +3,7 @@ package com.hsfault.webline.ui.home
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -17,7 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -41,11 +43,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -59,28 +59,28 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hsfault.webline.data.AppEntry
-import com.hsfault.webline.ui.components.HudAppIcon
+import com.hsfault.webline.ui.components.HudTile
+import com.hsfault.webline.ui.components.UiIcon
+import com.hsfault.webline.ui.components.drawUiIcon
 import com.hsfault.webline.ui.theme.Hud
 import com.hsfault.webline.ui.theme.HudType
-import com.hsfault.webline.ui.theme.hudFrame
 import kotlinx.coroutines.launch
+
+private val LETTERS = ('A'..'Z').toList()
 
 @Composable
 fun AppDrawer(
     apps: List<AppEntry>,
+    title: String,
     onClose: () -> Unit,
-    onLaunch: (AppEntry) -> Unit,
+    onTap: (AppEntry) -> Unit,
     onLongPress: (AppEntry) -> Unit,
+    onVoiceSearch: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     val filtered = remember(apps, query) {
         val q = query.trim()
         if (q.isEmpty()) apps else apps.filter { it.label.contains(q, ignoreCase = true) }
-    }
-    val sections = remember(filtered) {
-        val map = LinkedHashMap<Char, Int>()
-        filtered.forEachIndexed { index, app -> map.putIfAbsent(sectionOf(app.label), index) }
-        map
     }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
@@ -117,60 +117,62 @@ fun AppDrawer(
     }
 
     Column(
-        modifier = Modifier
+        Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(listOf(Hud.Void.copy(alpha = 0.96f), Hud.Night.copy(alpha = 0.98f)))
-            )
+            .background(Hud.Bg)
             .systemBarsPadding()
-            .imePadding(),
+            .imePadding()
     ) {
-        DrawerHeader(count = apps.size, onClose = onClose)
-        SearchField(
+        DrawerTitle(title, onClose)
+        SearchBar(
             query = query,
             onQueryChange = {
                 query = it
                 scope.launch { gridState.scrollToItem(0) }
             },
-            onSubmit = { filtered.firstOrNull()?.let(onLaunch) },
+            onSubmit = { filtered.firstOrNull()?.let(onTap) },
+            onVoice = onVoiceSearch,
         )
+        Spacer(Modifier.height(10.dp))
         Row(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
                 state = gridState,
                 modifier = Modifier.weight(1f).fillMaxHeight().nestedScroll(pullToClose),
-                contentPadding = PaddingValues(start = 6.dp, end = 2.dp, top = 8.dp, bottom = 32.dp),
+                contentPadding = PaddingValues(start = 8.dp, end = 0.dp, top = 6.dp, bottom = 32.dp),
             ) {
                 items(filtered, key = { it.key }) { app ->
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        HudAppIcon(
-                            app = app,
-                            onClick = { onLaunch(app) },
+                        HudTile(
+                            glyph = app.glyph,
+                            label = app.label,
+                            size = 54.dp,
+                            onClick = { onTap(app) },
                             onLongClick = { onLongPress(app) },
+                            labelWidth = 76.dp,
                         )
                     }
                 }
             }
-            if (query.isBlank() && sections.size > 1) {
-                AlphabetRail(
-                    letters = sections.keys.toList(),
-                    onPick = { letter ->
-                        sections[letter]?.let { index -> scope.launch { gridState.scrollToItem(index) } }
-                    },
-                )
+            if (query.isBlank()) {
+                AlphabetRail(onPick = { letter ->
+                    val index = filtered.indexOfFirst { sectionOf(it.label).let { s -> s != '#' && s >= letter } }
+                    val target = if (index < 0) filtered.lastIndex else index
+                    if (target >= 0) scope.launch { gridState.scrollToItem(target) }
+                })
             }
         }
     }
 }
 
 @Composable
-private fun DrawerHeader(count: Int, onClose: () -> Unit) {
+private fun DrawerTitle(title: String, onClose: () -> Unit) {
     val latestClose by rememberUpdatedState(onClose)
-    Column(
-        modifier = Modifier
+    Row(
+        Modifier
             .fillMaxWidth()
             .pointerInput(Unit) {
                 val threshold = 56.dp.toPx()
@@ -184,125 +186,28 @@ private fun DrawerHeader(count: Int, onClose: () -> Unit) {
                     },
                 )
             }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { latestClose() }
-            .padding(top = 6.dp, bottom = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Canvas(Modifier.size(width = 60.dp, height = 20.dp)) {
-            val x = size.width / 2f
-            val nodeY = size.height - 5.dp.toPx()
-            drawLine(Hud.Silver.copy(alpha = 0.6f), Offset(x, 0f), Offset(x, nodeY), 1.dp.toPx())
-            drawCircle(Hud.Glow.copy(alpha = 0.3f), 6.dp.toPx(), Offset(x, nodeY))
-            drawCircle(Hud.Glow, 2.5.dp.toPx(), Offset(x, nodeY))
-        }
-        BasicText("APPS // $count", style = HudType.label)
+        BasicText(title, style = HudType.title, modifier = Modifier.weight(1f))
+        Box(Modifier.size(width = 22.dp, height = 2.dp).background(Hud.Red))
     }
 }
 
 @Composable
-private fun SearchField(query: String, onQueryChange: (String) -> Unit, onSubmit: () -> Unit) {
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onVoice: () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
     BasicTextField(
         value = query,
         onValueChange = onQueryChange,
         singleLine = true,
         textStyle = HudType.body,
-        cursorBrush = SolidColor(Hud.Crimson),
+        cursorBrush = SolidColor(Hud.Red),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        decorationBox = { inner ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .hudFrame(cut = 12.dp)
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Canvas(Modifier.size(14.dp)) {
-                    val stroke = 1.5.dp.toPx()
-                    drawCircle(Hud.Crimson, size.minDimension / 2.8f, center, style = Stroke(stroke))
-                    drawLine(
-                        Hud.Crimson,
-                        center + Offset(size.width * 0.26f, size.height * 0.26f),
-                        Offset(size.width, size.height),
-                        stroke,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Box(Modifier.weight(1f)) {
-                    if (query.isEmpty()) {
-                        BasicText("SEARCH THE WEB", style = HudType.label.copy(fontSize = 13.sp))
-                    }
-                    inner()
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun AlphabetRail(letters: List<Char>, onPick: (Char) -> Unit) {
-    var active by remember { mutableStateOf<Char?>(null) }
-    val haptics = LocalHapticFeedback.current
-    val pick by rememberUpdatedState(onPick)
-
-    Column(
-        modifier = Modifier
-            .width(26.dp)
-            .fillMaxHeight()
-            .padding(vertical = 12.dp)
-            .drawBehind {
-                val x = size.width / 2f
-                drawLine(Hud.Silver.copy(alpha = 0.25f), Offset(x, 0f), Offset(x, size.height), 1.dp.toPx())
-            }
-            .pointerInput(letters) {
-                fun select(y: Float) {
-                    val index = ((y / size.height) * letters.size).toInt().coerceIn(0, letters.lastIndex)
-                    val letter = letters[index]
-                    if (letter != active) {
-                        active = letter
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        pick(letter)
-                    }
-                }
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    select(down.position.y)
-                    down.consume()
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        select(change.position.y)
-                        change.consume()
-                    }
-                    active = null
-                }
-            },
-        verticalArrangement = Arrangement.SpaceEvenly,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        letters.forEach { letter ->
-            val on = letter == active
-            BasicText(
-                text = letter.toString(),
-                style = HudType.label.copy(
-                    fontSize = if (on) 14.sp else 10.sp,
-                    color = if (on) Hud.Glow else Hud.Muted,
-                    letterSpacing = 0.sp,
-                ),
-            )
-        }
-    }
-}
-
-private fun sectionOf(label: String): Char {
-    val c = label.trim().firstOrNull()?.uppercaseChar() ?: '#'
-    return if (c in 'A'..'Z') c else '#'
-}

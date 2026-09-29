@@ -1,8 +1,8 @@
 package com.hsfault.webline.data
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -15,18 +15,29 @@ import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-data class AppEntry(
-    val key: String,
-    val component: ComponentName,
-    val label: String,
-    val icon: ImageBitmap,
-)
+/** Packages of the default phone, SMS, camera and browser apps. */
+data class Roles(val dialer: String?, val sms: String?, val camera: String?, val browser: String?) {
+    companion object {
+        fun resolve(context: Context): Roles {
+            val pm = context.packageManager
+            fun r(intent: Intent): String? =
+                pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                    ?.activityInfo?.packageName
+                    ?.takeIf { it != "android" }
+            return Roles(
+                dialer = r(Intent(Intent.ACTION_DIAL)),
+                sms = r(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))),
+                camera = r(Intent(MediaStore.ACTION_IMAGE_CAPTURE)),
+                browser = r(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))),
+            )
+        }
+    }
+}
 
 class AppRepository(private val context: Context) {
 
@@ -39,19 +50,30 @@ class AppRepository(private val context: Context) {
         private set
 
     suspend fun reload() {
-        apps = withContext(Dispatchers.IO) {
+        apps = withContext(Dispatchers.Default) {
+            val roles = Roles.resolve(context)
             launcherApps.getActivityList(null, user)
-                .map { info ->
-                    val cn = info.componentName
-                    AppEntry(
-                        key = cn.flattenToString(),
-                        component = cn,
-                        label = info.label.toString(),
-                        icon = info.getIcon(0).toBitmap(iconPx, iconPx).asImageBitmap(),
-                    )
-                }
+                .map { build(it, roles) }
                 .sortedBy { it.label.lowercase() }
         }
+    }
+
+    private fun build(info: LauncherActivityInfo, roles: Roles): AppEntry {
+        val cn = info.componentName
+        val label = info.label.toString()
+        val kind = classify(cn.packageName, label, roles)
+        val glyph: GlyphSource = if (kind != null) {
+            GlyphSource.Drawn(kind)
+        } else {
+            val drawable = info.getIcon(0)
+            val mask = runCatching { GlyphEngine.extract(drawable) }.getOrNull()
+            if (mask != null) {
+                GlyphSource.Mask(mask.asImageBitmap())
+            } else {
+                GlyphSource.Original(drawable.toBitmap(iconPx, iconPx).asImageBitmap())
+            }
+        }
+        return AppEntry(cn.flattenToString(), cn, label, kind, glyph)
     }
 
     fun startWatching(onChange: () -> Unit) {
@@ -88,41 +110,26 @@ class AppRepository(private val context: Context) {
     }
 }
 
-/** First-run layout: a sensible dock and a few common apps on page one. */
-object Defaults {
-    private val HOME_PACKAGES = listOf(
-        "com.google.android.youtube",
-        "com.instagram.android",
-        "com.android.vending",
-        "com.google.android.gm",
-        "com.google.android.apps.maps",
-        "com.android.settings",
-    )
-
-    fun dock(context: Context, apps: List<AppEntry>): List<String> {
-        val pm = context.packageManager
-        fun resolve(intent: Intent): String? =
-            pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-                ?.activityInfo?.packageName
-                ?.takeIf { it != "android" }
-
-        val packages = listOfNotNull(
-            resolve(Intent(Intent.ACTION_DIAL)),
-            "com.whatsapp",
-            resolve(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))),
-            resolve(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))),
-            resolve(Intent(MediaStore.ACTION_IMAGE_CAPTURE)),
-        )
-        return packages.mapNotNull { keyFor(apps, it) }.distinct().take(LayoutStore.DOCK_SIZE)
+/** Decides which generic apps get a hand-drawn glyph. Brand apps return null. */
+fun classify(pkg: String, label: String, roles: Roles): GlyphKind? {
+    val p = pkg.lowercase()
+    val l = label.lowercase()
+    return when {
+        pkg == roles.dialer || p.contains("dialer") -> GlyphKind.PHONE
+        pkg == roles.sms || p.contains("mms") || p.contains("messaging") || l == "messages" -> GlyphKind.MESSAGES
+        pkg == roles.camera || p.contains("camera") || l == "camera" -> GlyphKind.CAMERA
+        pkg == "com.android.settings" || l == "settings" -> GlyphKind.SETTINGS
+        p.contains("gallery") || l.contains("gallery") -> GlyphKind.GALLERY
+        p.contains("calculator") || l.contains("calculator") -> GlyphKind.CALCULATOR
+        p.contains("calendar") || l.contains("calendar") -> GlyphKind.CALENDAR
+        p.contains("deskclock") || l == "clock" -> GlyphKind.CLOCK
+        p.contains("contacts") || l == "contacts" -> GlyphKind.CONTACTS
+        p.contains("filemanager") || p.contains("documentsui") || l == "files" || l.contains("file manager") -> GlyphKind.FILES
+        p.contains("notes") || l.contains("notes") -> GlyphKind.NOTES
+        p.contains("recorder") || l.contains("recorder") -> GlyphKind.RECORDER
+        p.contains("compass") || l.contains("compass") -> GlyphKind.COMPASS
+        p.contains("weather") || l.contains("weather") -> GlyphKind.WEATHER
+        p.contains("music") || l == "music" -> GlyphKind.MUSIC
+        else -> null
     }
-
-    fun home(context: Context, apps: List<AppEntry>, exclude: Set<String>): List<String> {
-        val own = keyFor(apps, context.packageName)
-        return (HOME_PACKAGES.mapNotNull { keyFor(apps, it) } + listOfNotNull(own))
-            .filter { it !in exclude }
-            .distinct()
-    }
-
-    private fun keyFor(apps: List<AppEntry>, pkg: String): String? =
-        apps.firstOrNull { it.component.packageName == pkg }?.key
 }
