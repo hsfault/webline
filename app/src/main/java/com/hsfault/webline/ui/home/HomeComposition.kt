@@ -39,11 +39,14 @@ private const val TILE = 0.108f
 private const val PAD_X = 0.10f
 private const val PAD_Y = 0.045f
 
+/*
+ * The slanted plate shapes carry the 3D look. There is no camera tilt (rotationY) any more:
+ * a perspective transform forces Android to draw the text inside it the slow way on every frame.
+ */
 private class ClusterSpec(
     val plate: List<Offset>,
     val glows: List<GlowSeg>,
     val tiles: List<Pair<Int, Offset>>,
-    val tiltY: Float,
 )
 
 /** Positions measured from the reference design (fractions of screen width, height). */
@@ -53,28 +56,24 @@ private val CLUSTERS = listOf(
         plate = listOf(Offset(0.035f, 0.290f), Offset(0.230f, 0.292f), Offset(0.320f, 0.500f), Offset(0.075f, 0.512f)),
         glows = listOf(GlowSeg(3, 0.55f, 1f), GlowSeg(0, 0f, 0.3f), GlowSeg(2, 0f, 0.35f)),
         tiles = listOf(0 to Offset(0.113f, 0.334f), 1 to Offset(0.230f, 0.393f), 2 to Offset(0.150f, 0.470f)),
-        tiltY = 8f,
     ),
     // Right staircase
     ClusterSpec(
         plate = listOf(Offset(0.800f, 0.325f), Offset(0.965f, 0.335f), Offset(0.905f, 0.585f), Offset(0.690f, 0.575f)),
         glows = listOf(GlowSeg(1), GlowSeg(2, 0f, 0.3f)),
         tiles = listOf(3 to Offset(0.880f, 0.369f), 4 to Offset(0.832f, 0.448f), 5 to Offset(0.797f, 0.527f)),
-        tiltY = -8f,
     ),
     // Bottom-left row
     ClusterSpec(
         plate = listOf(Offset(0.075f, 0.662f), Offset(0.495f, 0.688f), Offset(0.490f, 0.772f), Offset(0.060f, 0.748f)),
         glows = listOf(GlowSeg(3), GlowSeg(0, 0f, 0.25f)),
         tiles = listOf(6 to Offset(0.172f, 0.695f), 7 to Offset(0.312f, 0.709f), 8 to Offset(0.438f, 0.719f)),
-        tiltY = 6f,
     ),
     // Bottom-right row
     ClusterSpec(
         plate = listOf(Offset(0.545f, 0.738f), Offset(0.940f, 0.640f), Offset(0.960f, 0.722f), Offset(0.560f, 0.822f)),
         glows = listOf(GlowSeg(1), GlowSeg(3, 0f, 0.5f)),
         tiles = listOf(9 to Offset(0.616f, 0.762f), 10 to Offset(0.743f, 0.726f), 11 to Offset(0.868f, 0.690f)),
-        tiltY = -6f,
     ),
 )
 
@@ -116,11 +115,7 @@ fun HomeComposition(
             modifier = Modifier
                 .offset(geo.x(0.553f), geo.y(0.075f))
                 .size(geo.x(0.392f), geo.y(0.178f))
-                .graphicsLayer {
-                    rotationZ = -4f
-                    rotationY = -6f
-                    cameraDistance = 16f * density
-                },
+                .graphicsLayer { rotationZ = -4f },
         )
 
         MusicCard(
@@ -134,11 +129,7 @@ fun HomeComposition(
             modifier = Modifier
                 .offset(geo.x(0.065f), geo.y(0.535f))
                 .size(geo.x(0.518f), geo.y(0.105f))
-                .graphicsLayer {
-                    rotationZ = 2.5f
-                    rotationY = 5f
-                    cameraDistance = 16f * density
-                },
+                .graphicsLayer { rotationZ = 2.5f },
         )
 
         QuoteBlock(
@@ -171,10 +162,6 @@ private fun Cluster(
         Modifier
             .offset(geo.x(minX), geo.y(minY))
             .size(geo.x(boxW), geo.y(boxH))
-            .graphicsLayer {
-                rotationY = spec.tiltY
-                cameraDistance = 14f * density
-            }
     ) {
         Box(Modifier.fillMaxSize().hudPlate(local, spec.glows))
         spec.tiles.forEach { (slot, center) ->

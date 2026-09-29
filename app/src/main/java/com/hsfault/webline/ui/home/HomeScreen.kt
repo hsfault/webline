@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -206,8 +207,17 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 1,
         ) { page ->
-            // Each page gets its own layer: swiping moves a cached image instead of redrawing.
-            Box(Modifier.fillMaxSize().graphicsLayer()) {
+            /*
+             * Each page is painted once into its own cached image (Offscreen layer).
+             * Swiping then just slides that image instead of repainting every card,
+             * plate and label on every frame. It is only repainted when something
+             * on the page actually changes (clock tick, song change, a tap).
+             */
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            ) {
                 when (page) {
                     0 -> HomeComposition(
                         geo = geo,

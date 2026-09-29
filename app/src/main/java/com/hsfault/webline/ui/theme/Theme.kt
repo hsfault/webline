@@ -1,8 +1,6 @@
 package com.hsfault.webline.ui.theme
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -34,8 +32,10 @@ val Inter = FontFamily(
     Font(R.font.inter_semibold, FontWeight.SemiBold),
 )
 
-private val textShadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(0f, 1.5f), 6f)
-
+/*
+ * No text shadows anywhere: Android re-blurs a text shadow on every frame
+ * (it can't cache it), which was the main cause of the swipe/scroll lag.
+ */
 object HudType {
     val clock = TextStyle(fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 38.sp, color = Hud.White)
     val clockSuffix = TextStyle(fontFamily = ChakraPetch, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Hud.White)
@@ -43,7 +43,7 @@ object HudType {
     val tagline = TextStyle(fontFamily = ChakraPetch, fontWeight = FontWeight.Medium, fontSize = 8.sp, letterSpacing = 3.sp, color = Hud.Grey)
     val quote = TextStyle(fontFamily = ChakraPetch, fontWeight = FontWeight.Medium, fontSize = 11.sp, letterSpacing = 4.5.sp, lineHeight = 21.sp, color = Hud.Soft)
     val temp = TextStyle(fontFamily = ChakraPetch, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = Hud.White)
-    val label = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = Hud.White, shadow = textShadow)
+    val label = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = Hud.White)
     val title = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, color = Hud.White)
     val cardTitle = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Hud.White)
     val cardSub = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Normal, fontSize = 11.sp, color = Hud.Grey)
